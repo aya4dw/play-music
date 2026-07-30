@@ -98,9 +98,95 @@ npm run build
 
 输出到 `dist/` 目录。
 
+## CD 刻录
+
+支持使用 cdrdao 将 FLAC 刻录为 Audio CD（含 CD-Text）。
+
+### 安装 cdrdao
+
+1. 从 [cdrdao 官网](https://cdrdao.sourceforge.net/) 下载 Windows 版本（推荐 1.2.6）
+2. 解压到 `C:\cdrdao\`，确保 `C:\cdrdao\cdrdao.exe` 存在
+3. 将 `C:\cdrdao` 加入 PATH：
+   ```powershell
+   [Environment]::SetEnvironmentVariable("Path", "$env:Path;C:\cdrdao", "User")
+   ```
+
+### 使用前准备
+
+每次刻录前，必须禁用系统休眠和自动播放：
+
+```powershell
+powercfg -h off
+powercfg -change -standby-timeout-ac 0
+Stop-Service -Name "ShellHWDetection" -Force -ErrorAction SilentlyContinue
+```
+
+### 查看光驱
+
+```powershell
+cdrdao scanbus
+# 输出示例：G:\ : PIONEER, BD-RW   BDR-209D, 1.34
+```
+
+### FLAC → WAV 转换
+
+Audio CD 只接受 44.1kHz/16bit/stereo WAV：
+
+```powershell
+ffmpeg -i input.flac -c:a pcm_s16le -ar 44100 output.wav
+```
+
+### 生成 TOC 文件
+
+TOC 文件是 cdrdao 的刻录描述文件，包含 CD-Text 元数据：
+
+```
+CD_DA
+
+CD_TEXT {
+  LANGUAGE_MAP { 0 : EN }
+  LANGUAGE 0 {
+    TITLE "Album Name"
+    PERFORMER "Artist Name"
+  }
+}
+
+TRACK AUDIO
+CD_TEXT {
+  LANGUAGE 0 {
+    TITLE "Track 1"
+    PERFORMER "Artist Name"
+  }
+}
+FILE "01 Track1.wav" 0
+```
+
+**规则：** FILE 路径使用**相对路径**（仅文件名），不要用反斜杠。
+
+### 刻录
+
+```powershell
+# 验证 TOC
+cdrdao show-toc album.toc
+
+# 模拟刻录（不写激光）
+cdrdao write --simulate --speed 4 --device "G:\" --driver generic-mmc --overburn --eject -n album.toc
+
+# 正式刻录
+cdrdao write --speed 16 --device "G:\" --driver generic-mmc --overburn --eject -n album.toc
+```
+
+参数说明：
+- `--speed`：4x=14 分钟，16x=4 分钟，48x=1.5 分钟
+- `--device`：从 `scanbus` 获取的光驱路径
+- `--overburn`：允许超刻
+- `--eject`：刻录完成弹出光盘
+
+完整流程详见 `skills/music/SKILL.md`。
+
 ## 技能文件
 
-本仓库包含 Claude/opencode 的下载技能：
+本仓库包含 opencode 的下载/刻录技能：
 
 ```
 skills/music/SKILL.md
