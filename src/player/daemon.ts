@@ -1,9 +1,16 @@
 import { mkdirSync, readFileSync, writeFileSync, unlinkSync, existsSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { Song } from '../providers/types.js';
 
-const STATE_DIR = `${process.env.HOME}/.play-music`;
-const STATE_FILE = `${STATE_DIR}/state.json`;
-export const MPV_SOCKET = `${STATE_DIR}/mpv.sock`;
+const isWindows = process.platform === 'win32';
+const STATE_DIR = join(homedir(), '.play-music');
+const STATE_FILE = join(STATE_DIR, 'state.json');
+
+// Windows uses named pipe, Unix uses socket file
+export const MPV_SOCKET = isWindows
+  ? '\\\\.\\pipe\\mpv-ipc'
+  : join(STATE_DIR, 'mpv.sock');
 
 export type RepeatMode = 'off' | 'one' | 'all';
 
@@ -34,6 +41,10 @@ export function writeState(state: PlayState) {
 }
 
 export function cleanupSocket() {
+  if (isWindows) {
+    // TCP doesn't need cleanup, just ensure mpv process is stopped
+    return;
+  }
   try {
     if (existsSync(MPV_SOCKET)) unlinkSync(MPV_SOCKET);
   } catch {

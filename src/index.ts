@@ -59,6 +59,7 @@ program
   .option('--json', 'Output as JSON')
   .option('--source <source>', 'Music source to use')
   .option('-o, --output <dir>', 'Output directory', '~/Music')
+  .option('-b, --bitrate <bitrate>', 'Bitrate: 128k, 320k, flac')
   .action(async (keyword, opts) => {
     await ensureProviders();
     const { downloadCommand } = await import('./commands/download.js');

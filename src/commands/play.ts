@@ -53,10 +53,11 @@ export async function playCommand(keyword: string, opts: { json?: boolean; sourc
 
     // check mpv exists
     const { execSync } = await import('node:child_process');
+    const isWindows = process.platform === 'win32';
     try {
-      execSync('which mpv', { stdio: 'ignore' });
+      execSync(isWindows ? 'where mpv' : 'which mpv', { stdio: 'ignore' });
     } catch {
-      throw new Error('mpv not found. Install it with: brew install mpv');
+      throw new Error(`mpv not found. Install it: ${isWindows ? 'download from https://mpv.io/installation/' : 'brew install mpv'}`);
     }
 
     const { song, url } = await findPlayableSong(keyword, opts.source);

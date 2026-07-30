@@ -1,4 +1,4 @@
-import { MusicProvider, Song } from './types.js';
+import { MusicProvider, Song, Bitrate } from './types.js';
 
 const SEARCH_URL = 'http://c.y.qq.com/soso/fcgi-bin/search_for_qq_cp';
 const MUSICU_URL = 'https://u.y.qq.com/cgi-bin/musicu.fcg';
@@ -85,13 +85,23 @@ export const qqProvider: MusicProvider = {
     }));
   },
 
-  async getSongUrl(song: Song): Promise<string> {
+  async getSongUrl(song: Song, bitrate?: Bitrate): Promise<string> {
     const guid = randomGuid();
-    // try quality levels: M800 (320k) then M500 (128k)
-    const prefixes = [
-      { prefix: 'M800', ext: 'mp3' },
-      { prefix: 'M500', ext: 'mp3' },
-    ];
+
+    // Map bitrate to qq's format
+    const bitrateMap: Record<Bitrate, Array<{ prefix: string; ext: string }>> = {
+      '128k': [{ prefix: 'M500', ext: 'mp3' }],
+      '320k': [{ prefix: 'M800', ext: 'mp3' }],
+      'flac': [{ prefix: 'F000', ext: 'flac' }],
+    };
+
+    // If specific bitrate requested, try only that; otherwise try all in quality order
+    const prefixes = bitrate
+      ? bitrateMap[bitrate]
+      : [
+          { prefix: 'M800', ext: 'mp3' },
+          { prefix: 'M500', ext: 'mp3' },
+        ];
 
     for (const { prefix, ext } of prefixes) {
       const filename = `${prefix}${song.id}${song.id}.${ext}`;

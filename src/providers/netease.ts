@@ -1,5 +1,5 @@
 import { createCipheriv, createHash, publicEncrypt, randomBytes } from 'node:crypto';
-import { MusicProvider, Song } from './types.js';
+import { MusicProvider, Song, Bitrate } from './types.js';
 import { sourcePost } from '../utils/http.js';
 
 const LINUX_API = 'http://music.163.com/api/linux/forward';
@@ -144,8 +144,16 @@ export const neteaseProvider: MusicProvider = {
     }));
   },
 
-  async getSongUrl(song: Song): Promise<string> {
-    const data = { ids: `[${song.id}]`, br: 320000 };
+  async getSongUrl(song: Song, bitrate?: Bitrate): Promise<string> {
+    // Map bitrate to netease's format (bitrate * 1000)
+    const bitrateMap: Record<Bitrate, number> = {
+      '128k': 128000,
+      '320k': 320000,
+      'flac': 999000,
+    };
+
+    const br = bitrate ? bitrateMap[bitrate] : 320000;
+    const data = { ids: `[${song.id}]`, br };
     const encrypted = encryptWeApi(data);
     const body = `params=${encodeURIComponent(encrypted.params)}&encSecKey=${encodeURIComponent(encrypted.encSecKey)}`;
 

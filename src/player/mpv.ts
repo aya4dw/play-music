@@ -1,8 +1,14 @@
 import { createConnection, Socket } from 'node:net';
 import { spawn, ChildProcess } from 'node:child_process';
 import { existsSync, statSync } from 'node:fs';
+import { homedir } from 'node:os';
 
-const MPV_SOCKET = `${process.env.HOME}/.play-music/mpv.sock`;
+const isWindows = process.platform === 'win32';
+
+// Windows uses named pipe, Unix uses socket file
+export const MPV_SOCKET = isWindows
+  ? '\\\\.\\pipe\\mpv-ipc'
+  : `${process.env.HOME}/.play-music/mpv.sock`;
 
 export class MpvIPC {
   private socket: Socket | null = null;
@@ -10,9 +16,9 @@ export class MpvIPC {
   private pending = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void }>();
   private buffer = '';
 
-  async connect(socketPath = MPV_SOCKET): Promise<void> {
+  async connect(target = MPV_SOCKET): Promise<void> {
     return new Promise((resolve, reject) => {
-      this.socket = createConnection(socketPath, () => resolve());
+      this.socket = createConnection(target, () => resolve());
       this.socket.setEncoding('utf-8');
       this.socket.on('data', (data: string) => this.onData(data));
       this.socket.on('error', reject);
@@ -78,11 +84,11 @@ export class MpvIPC {
   }
 }
 
-export function spawnMpv(url: string, socketPath = MPV_SOCKET, volume?: number): ChildProcess {
+export function spawnMpv(url: string, ipcTarget = MPV_SOCKET, volume?: number): ChildProcess {
   const args = [
     '--no-video',
     '--audio-display=no',
-    `--input-ipc-server=${socketPath}`,
+    `--input-ipc-server=${ipcTarget}`,
     '--really-quiet',
   ];
   if (volume !== undefined) args.push(`--volume=${volume}`);
@@ -90,15 +96,41 @@ export function spawnMpv(url: string, socketPath = MPV_SOCKET, volume?: number):
   const child = spawn('mpv', args, {
     detached: true,
     stdio: 'ignore',
+    ...(isWindows ? { shell: false } : {}),
   });
   child.unref();
   return child;
 }
 
-export function isMpvRunning(socketPath = MPV_SOCKET): boolean {
-  if (!existsSync(socketPath)) return false;
+export async function isMpvRunningAsync(ipcTarget = MPV_SOCKET): Promise<boolean> {
+  if (isWindows) {
+    // For named pipe, try to connect
+    return new Promise<boolean>((resolve) => {
+      const socket = createConnection(ipcTarget, () => {
+        socket.destroy();
+        resolve(true);
+      });
+      socket.on('error', () => resolve(false));
+      setTimeout(() => {
+        socket.destroy();
+        resolve(false);
+      }, 500);
+    });
+  }
+
+  if (!existsSync(ipcTarget)) return false;
   try {
-    return statSync(socketPath).isSocket();
+    return statSync(ipcTarget).isSocket();
+  } catch {
+    return false;
+  }
+}
+
+export function isMpvRunning(ipcTarget = MPV_SOCKET): boolean {
+  if (isWindows) return false; // Use async version on Windows
+  if (!existsSync(ipcTarget)) return false;
+  try {
+    return statSync(ipcTarget).isSocket();
   } catch {
     return false;
   }

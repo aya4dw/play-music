@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { MusicProvider, Song } from './types.js';
+import { MusicProvider, Song, Bitrate } from './types.js';
 import { sourceGet } from '../utils/http.js';
 
 const SEARCH_URL = 'http://songsearch.kugou.com/song_search_v2';
@@ -86,11 +86,20 @@ export const kugouProvider: MusicProvider = {
     }));
   },
 
-  async getSongUrl(song: Song): Promise<string> {
-    const hash =
-      (song.extra?.hqFileHash as string) ||
-      (song.extra?.fileHash as string);
-    if (!hash) throw new Error('KuGou: no file hash available');
+  async getSongUrl(song: Song, bitrate?: Bitrate): Promise<string> {
+    // Map bitrate to kugou's hash fields
+    const bitrateMap: Record<Bitrate, string | undefined> = {
+      '128k': song.extra?.fileHash as string,
+      '320k': song.extra?.hqFileHash as string,
+      'flac': song.extra?.sqFileHash as string,
+    };
+
+    // If specific bitrate requested, use that hash; otherwise try HQ then normal
+    const hash = bitrate
+      ? bitrateMap[bitrate]
+      : (song.extra?.hqFileHash as string) || (song.extra?.fileHash as string);
+
+    if (!hash) throw new Error(`KuGou: no ${bitrate || 'default'} hash available`);
 
     // Method 1: Basic API
     try {

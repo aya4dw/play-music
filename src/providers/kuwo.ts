@@ -1,4 +1,4 @@
-import { MusicProvider, Song } from './types.js';
+import { MusicProvider, Song, Bitrate } from './types.js';
 import { sourceGet } from '../utils/http.js';
 
 const SEARCH_URL = 'http://www.kuwo.cn/search/searchMusicBykeyWord';
@@ -74,20 +74,40 @@ export const kuwoProvider: MusicProvider = {
 
     if (!json.abslist) return [];
 
-    return json.abslist.map(item => ({
-        id: parseId(item.MUSICRID),
-        source: 'kuwo' as const,
-        name: item.SONGNAME,
-        artist: item.ARTIST,
-        album: item.ALBUM,
-        duration: parseInt(item.DURATION, 10) || 0,
-        cover: item.hts_MVPIC || undefined,
-        extra: { minfo: item.MINFO },
-      }));
+    return json.abslist.map(item => {
+        // Parse minfo to find best format
+        let ext = 'mp3';
+        if (item.MINFO) {
+          const formats = item.MINFO.split(';');
+          for (const fmt of formats) {
+            if (fmt.includes('format:flac')) { ext = 'flac'; break; }
+          }
+        }
+        return {
+          id: parseId(item.MUSICRID),
+          source: 'kuwo' as const,
+          name: item.SONGNAME,
+          artist: item.ARTIST,
+          album: item.ALBUM,
+          duration: parseInt(item.DURATION, 10) || 0,
+          cover: item.hts_MVPIC || undefined,
+          ext,
+          extra: { minfo: item.MINFO },
+        };
+      });
   },
 
-  async getSongUrl(song: Song): Promise<string> {
-    const bitrates = ['320kmp3', '128kmp3', 'flac', '2000kflac'];
+  async getSongUrl(song: Song, bitrate?: Bitrate): Promise<string> {
+    // Map bitrate to kuwo's format
+    // NOTE: 'flac' returns encrypted mgg (unusable), only '2000kflac' returns real FLAC
+    const bitrateMap: Record<Bitrate, string[]> = {
+      '128k': ['128kmp3'],
+      '320k': ['320kmp3'],
+      'flac': ['2000kflac'],
+    };
+
+    // If specific bitrate requested, try only that; otherwise try MP3 first, then real FLAC
+    const bitrates = bitrate ? bitrateMap[bitrate] : ['320kmp3', '128kmp3', '2000kflac'];
 
     for (const br of bitrates) {
       const params = new URLSearchParams({
