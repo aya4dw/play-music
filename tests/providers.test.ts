@@ -88,7 +88,6 @@ describe('kuwo provider', () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ data: {} }));
     mockFetch.mockResolvedValueOnce(jsonResponse({ data: {} }));
     mockFetch.mockResolvedValueOnce(jsonResponse({ data: {} }));
-    mockFetch.mockResolvedValueOnce(jsonResponse({ data: {} }));
     mockFetch.mockResolvedValueOnce(jsonResponse({
       data: { url: 'https://web.kuwo.cn/fallback.mp3' },
     }));

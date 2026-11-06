@@ -4,7 +4,7 @@ import fs from 'fs';
 import path from 'path';
 
 const execFileAsync = promisify(execFile);
-const CLI = 'C:\\Users\\weidi\\play-music\\dist\\index.js';
+const CLI = new URL('./dist/index.js', import.meta.url).pathname;
 
 const album = {
   artist: '王力宏',
@@ -25,7 +25,7 @@ const album = {
   ]
 };
 
-const outDir = path.join('C:\\Users\\weidi\\Music', `${album.artist} - ${album.name}`);
+const outDir = path.join(process.env.HOME || process.env.USERPROFILE, 'Music', `${album.artist} - ${album.name}`);
 const tempDir = path.join(outDir, '_wav_temp');
 
 async function downloadAlbum() {
@@ -107,7 +107,7 @@ async function downloadAlbum() {
       const albumName = album.name;
       try {
         const { execSync } = await import('child_process');
-        const ffmpeg = 'C:\\ffmpeg\\ffmpeg-8.1.2-essentials_build\\bin\\ffmpeg.exe';
+        const ffmpeg = 'ffmpeg';
         execSync(`"${ffmpeg}" -i "${filePath}" -c copy -metadata title="${title}" -metadata artist="${artist}" -metadata album="${albumName}" -metadata track=${trackNum} -metadata total=${total} -y "${filePath}_tagged.${ext}"`, { stdio: 'ignore' });
         const taggedPath = `${filePath}_tagged.${ext}`;
         if (fs.existsSync(taggedPath)) {

@@ -1,7 +1,8 @@
 import fs from 'fs';
 import path from 'path';
+import { homedir } from 'os';
 
-const dir = 'C:\\Users\\weidi\\Music\\陶喆 - 黑色柳丁';
+const dir = path.join(homedir(), 'Music', '陶喆 - 黑色柳丁');
 
 const trackMap = {
   '陶喆 - 黑色柳丁.flac': 1,

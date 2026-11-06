@@ -1,405 +1,278 @@
 ---
 name: music
-description: Use when the user wants to search, play, or download Chinese music. Supports keywords like play, search, download, song, music, singer, artist. Use for commands like "play [song]", "download [song]", "search [song]", "pause", "stop", "next", "prev".
+description: Use when the user wants to search, play, or download Chinese music (网易云/QQ/酷狗/酷我/咪咕), especially whole albums. Covers multi-engine fallback (ting / go-music-dl / musicdl), per-track integrity validation, FLAC tagging, cover embedding, and M3U8 playlists. Triggers on play/search/download song or album, 下载专辑, 批量下歌, lossless music, 网易云/QQ音乐/酷狗/酷我/咪咕.
 ---
 
-# Music Player Skill
+# Music Skill
 
-A CLI tool for searching, playing, and downloading Chinese music from Kuwo, QQ Music, KuGou, and NetEase.
+搜索 / 播放 / 下载华语音乐。核心是**多引擎适配**：任一音源或引擎失效时自动降级，
+且每次下载都过完整性校验，绝不把损坏文件写进曲库。
 
-## Prerequisites
+- 配套仓库：`aya4dw/play-music`（UNIX 通用版，macOS / Linux / Windows）
+- CLI 本体：`ting`（本仓库 `src/`，Node ≥ 18）
+- 本技能脚本目录：`skills/music/scripts/`
 
-- mpv installed at `C:\mpv\mpv.exe`
-- Node.js project at `C:\Users\weidi\play-music`
-- cdrdao 1.2.6 installed at `C:\cdrdao\cdrdao.exe` (for CD burning)
-- ffmpeg 8.1.2 installed at `C:\ffmpeg\ffmpeg-8.1.2-essentials_build\bin\ffmpeg.exe` (FLAC→WAV conversion)
+---
 
-## Commands
-
-### Search
+## 1. 前置依赖
 
 ```bash
-node "C:\Users\weidi\play-music\dist\index.js" search "关键词" --json
+# CLI 本体（必需）
+npm install -g .            # 在本仓库目录执行，提供 ting / play-music / mu 三个别名
+
+# 播放（必需）
+brew install mpv            # macOS
+sudo apt install mpv       # Debian / Ubuntu
+sudo pacman -S mpv         # Arch
+
+# 打标签 / 封面 / 校验（强烈建议）
+brew install ffmpeg flac    # macOS
+sudo apt install ffmpeg flac
 ```
 
-### Play
+可选的第二引擎（用于兜底，见 §3）：
 
 ```bash
-node "C:\Users\weidi\play-music\dist\index.js" play "歌曲名 歌手"
+# go-music-dl：静态单文件，无运行时依赖
+curl -sL -o music-dl.tar.gz \
+  https://github.com/guohuiyuan/go-music-dl/releases/latest/download/go-music-dl_$(uname -s | tr 'A-Z' 'a-z')_$(uname -m).tar.gz
+tar xzf music-dl.tar.gz && mv music-dl ~/.local/bin/
+~/.local/bin/music-dl web --port 8080 &     # 起 HTTP 服务，适配器通过它工作
+
+# musicdl：Python 包，带咪咕源和 mgg 解密
+python3 -m venv ~/.venvs/musicdl && ~/.venvs/musicdl/bin/pip install musicdl
 ```
 
-### Download
+---
+
+## 2. CLI 命令速查
 
 ```bash
-# Download FLAC (highest quality)
-node "C:\Users\weidi\play-music\dist\index.js" download "歌曲名 歌手" -b flac -o "输出目录"
-
-# Download MP3 320k
-node "C:\Users\weidi\play-music\dist\index.js" download "歌曲名 歌手" -b 320k -o "输出目录"
-
-# Download with default quality
-node "C:\Users\weidi\play-music\dist\index.js" download "歌曲名 歌手" -o "输出目录"
+ting search "关键词" --json          # 跨源搜索，JSON 输出
+ting play "歌曲名 歌手"              # 播放（mpv 后台）
+ting download "歌名 歌手" -b flac -o DIR   # 下载（128k / 320k / flac）
+ting pause | resume | stop | next | prev | volume 80
 ```
 
-### Playback Control
+`--json` 输出形如 `{"ok":true,"data":{...}}`，失败时 `{"ok":false,"error":"..."}`。
+所有控制命令在管道下自动切 JSON。
+
+---
+
+## 3. 引擎矩阵
+
+三个引擎**音源不同、能力不同**，互为兜底：
+
+| 引擎 | 形态 | 音源 | 独有优势 | 状态 |
+|---|---|---|---|---|
+| `ting` | 本仓库 CLI，进程内 | 酷我 / 网易 / QQ / 酷狗 | 零子进程开销，JSON 友好 | 上游 2026-04 停更，自维护 |
+| `go-music-dl` | Go 静态二进制 + HTTP API | 上述 4 源 + **咪咕** / 千千 / 汽水 / 5sing / B站 | **自带 `/switch_source` 自动换源**、`/inspect` 解析体检、整张专辑队列 | 活跃（2026-11 v1.1.4） |
+| `musicdl` | Python 包 | **咪咕** / 网易 / QQ / 酷我 / 千千 + 海外源 | **能解酷我加密 mgg**、优先 FLAC | 活跃（2026-10 v2.14.2） |
+
+关键认知：**「引擎」和「音源」是正交的两条轴**。
+实测同一首《康定情歌与溜溜调(采风版)》，`ting` 根本搜不到（它没有咪咕源），
+而 `go-music-dl` 和 `musicdl` 都能拿到 —— 这不是引擎坏了，是音源缺失。
+
+### 两条降级轴
+
+```
+轴一 换源：引擎活着，但该音源没有/下不了 → 同一引擎内换源
+轴二 换引擎：引擎整体故障（进程挂 / URL 取不到 / 连续校验失败）→ 切下一个引擎
+```
+
+---
+
+## 4. 多引擎适配器
+
+`skills/music/scripts/engine-adapter.mjs` 把上面三条轴实现成了统一流程。
 
 ```bash
-node "C:\Users\weidi\play-music\dist\index.js" pause
-node "C:\Users\weidi\play-music\dist\index.js" resume
-node "C:\Users\weidi\play-music\dist\index.js" stop
-node "C:\Users\weidi\play-music\dist\index.js" next
-node "C:\Users\weidi\play-music\dist\index.js" prev
-node "C:\Users\weidi\play-music\dist\index.js" volume 80
+cd ~/play-music
+
+# 体检：各引擎是否可用
+MUSICDL_PYTHON=~/.venvs/musicdl/bin/python \
+GO_MUSIC_DL_BASE=http://127.0.0.1:8080/music \
+  node skills/music/scripts/engine-adapter.mjs health
+
+# 跨引擎聚合搜索
+node skills/music/scripts/engine-adapter.mjs search "谭维维 蝶"
+
+# 取一首歌：自动跨引擎 × 跨音源降级，全程校验
+node skills/music/scripts/engine-adapter.mjs fetch "康定情歌与溜溜调(采风版) 谭维维" \
+  --out ~/Music/谭维维\ -\ 高原之心 --name "康定情歌与溜溜调(采风版)" --expect 279
 ```
 
-## Music Sources
+| 参数 | 说明 |
+|---|---|
+| `--out` | 输出目录 |
+| `--name` | **目标歌名**（用于同名消歧，强烈建议给） |
+| `--expect` | 参考时长（秒），用于挡住「同名不同录音」 |
+| `--album` | 目标专辑名，用于专辑过滤 |
 
-| Platform | FLAC | MP3 | Notes |
-|----------|------|-----|-------|
-| Kuwo | ✅ 2000kflac | ✅ 320k/128k | Best free FLAC support |
-| QQ Music | ⚠️ VIP | ✅ 320k/128k | Hot songs need VIP |
-| KuGou | ⚠️ VIP | ✅ 320k/128k | Hot songs need VIP |
-| NetEase | ⚠️ Copyright | ✅ 320k/128k | Some songs restricted |
+环境变量：`GO_MUSIC_DL_BASE`（默认 `http://127.0.0.1:8080/music`）、
+`MUSICDL_PYTHON`（musicdl 用的解释器）、`TING_BIN`、`PYTHON_BIN`。
 
-## Album Download Workflow
+### 候选筛选顺序
 
-When downloading an album, follow these steps:
+1. 歌名匹配：候选名必须**包含**目标名（目标名更完整时才不会误判为命中）
+   —— 这样《康定情歌与溜溜调》不会被当成《康定情歌与溜溜调(采风版)》
+2. 排除伴奏 / 铃声版
+3. 艺人匹配（挡掉同名不同歌手，如《蝴蝶的翅膀》根呷版）
+4. 专辑过滤（若给 `--album`）
+5. 时长闸门：候选自报时长与 `--expect` 偏差 ≤ 6s
+6. 排序：非 Live / 非翻唱优先 → 比特率高的优先
 
-### 1. 联网搜索获取完整曲目列表及英文名
+### 熔断
 
-先用 WebSearch 搜索专辑，记录：
-- 歌曲数量
-- 歌曲中文名称
-- 歌曲英文名称（用于 CD-Text）
-- 歌曲顺序编号
+`(引擎, 音源)` 组合连续失败 3 次 → 冷却 5 分钟，期间直接跳过。
+`health()` 失败的引擎整体跳过。
 
-搜索关键词示例：`"歌手名 专辑名 album tracklist English"`
+---
 
-### 2. 软件搜索对比
+## 5. 专辑下载工作流
 
-用 `search` 命令搜索专辑名，对比网络搜索结果：
-- 标记已找到的歌曲
-- 标记缺失的歌曲
-
-### 3. 单独搜索缺失歌曲
-
-对缺失歌曲单独搜索，可能需要：
-- 换用不同关键词（如英文名、别名）
-- 换用其他平台
-
-### 4. 下载并编号
-
-下载到以专辑命名的文件夹，文件按编号命名：
-
-```
-~/Music/歌手名 - 专辑名/
-  01 歌曲名.flac
-  02 歌曲名.flac
-  ...
-```
-
-### 5. 写入 FLAC Tag
-
- 下载完成后，必须为每个 FLAC 文件写入正确的 Tag：
- - `TITLE` - 歌曲名称
- - `ARTIST` - 歌手名称
- - `ALBUM` - 专辑名称
- - `TRACKNUMBER` - 曲目序号（必须）
-
- 使用 Node.js 脚本直接修改 FLAC 文件的 Vorbis Comment 块。
-
-### 5.1 生成 Playlist
-
- 下载完成后，在专辑文件夹内生成 M3U8 播放列表（UTF-8编码，支持中文）。
-
- ```javascript
- // generate-playlist.mjs
- import fs from 'fs';
- import path from 'path';
-
- function generatePlaylist(albumDir, albumName, files) {
-   const lines = ['#EXTM3U', ''];
-   for (const file of files) {
-     lines.push(`#EXTINF:-1,${file.replace('.flac', '')}`);
-     lines.push(file);
-   }
-   const m3u8Path = path.join(albumDir, `${albumName}.m3u8`);
-   fs.writeFileSync(m3u8Path, '\ufeff' + lines.join('\r\n'), 'utf8');
-   console.log(`Playlist: ${m3u8Path}`);
- }
- ```
-
- 或直接在下载脚本末尾添加（参考完整模板）。
-
-### 6. FLAC → WAV 转换
-
-Audio CD 只接受 44.1kHz/16bit/stereo WAV。FLAC → WAV 是**无损解码**（不是转码）。
+**第 0 步（最关键）：曲目表以平台官方专辑接口为准，不要信维基。**
+实测《谭某某》维基列 9 首、官方实为 11 首（多《21克》和《离去之前叫醒我》长版）；
+《乌龟的阿基里斯》实为 14 首（Track 12 是《Ich Liebe Dich》不是《我爱你》）。
 
 ```bash
-# 使用 ffmpeg 转换（无损）
-C:\ffmpeg\ffmpeg-8.1.2-essentials_build\bin\ffmpeg.exe -i input.flac -c:a pcm_s16le -ar 44100 output.wav
+# 网易云专辑曲目（含 id、时长）——最可靠
+curl -s "https://music.163.com/api/v1/album/<albumId>" -H "User-Agent: Mozilla/5.0" \
+  -H "Referer: https://music.163.com" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+for i,s in enumerate(d['songs'],1):
+    print(f'{i:02d} id={s[\"id\"]} {s[\"name\"]} | {s[\"dt\"]}ms')"
+
+# Apple Music 专辑曲目（含官方封面、权威曲序）
+curl -s "https://itunes.apple.com/lookup?id=<collectionId>&entity=song" | python3 -c "
+import json,sys
+for r in json.load(sys.stdin)['results']:
+    if r.get('wrapperType')=='track': print(r['trackNumber'], r['trackName'])"
 ```
 
-批量转换脚本示例：
-```javascript
-import { execSync } from 'child_process';
-import { readdirSync } from 'fs';
-import { join } from 'path';
+拿到曲目表后：
 
-const ffmpeg = 'C:\\ffmpeg\\ffmpeg-8.1.2-essentials_build\\bin\\ffmpeg.exe';
-const dir = 'C:\\Users\\weidi\\wav_temp';
+1. 逐首调适配器 `fetch`，传 `--name` + `--expect` + `--album`
+2. 失败的曲目单独排查（换引擎 / 换音源 / 确认是否全平台下架）
+3. 全平台都下不到的曲目，**用 Live 或其它版本替代并在文件名标注**
+   （例：`06 往日时光 (Live·我是歌手第三季版).flac`）
+4. 打标签 + 内嵌封面 + 生成播放列表 → `scripts/album-finalize.mjs`
+5. 审计 → `scripts/album-audit.mjs`
 
-readdirSync(dir).filter(f => f.endsWith('.flac')).forEach(f => {
-  const out = f.replace('.flac', '.wav');
-  execSync(`"${ffmpeg}" -i "${join(dir, f)}" -c:a pcm_s16le -ar 44100 "${join(dir, out)}"`);
-  console.log(`Converted: ${f} -> ${out}`);
-});
-```
+参考实现见仓库根目录的 `album-tanweiwei.ts`（谭维维全专辑，11 张 90 首）。
 
-### 7. 生成 TOC 文件（用于 CD 刻录）
+---
 
-TOC 文件是 cdrdao 的刻录描述文件，包含 CD-Text 元数据。
+## 6. 校验闸门（每次下载必过）
 
-**TOC 文件格式示例：**
-```
-CD_DA
+任何一项不过即判失败 → 熔断该 (引擎, 音源) → 换下一个组合。
 
-CD_TEXT {
-  LANGUAGE_MAP { 0 : EN }
-  LANGUAGE 0 {
-    TITLE "Album Name"
-    PERFORMER "Artist Name"
-  }
-}
-
-TRACK AUDIO
-CD_TEXT {
-  LANGUAGE 0 {
-    TITLE "Track 1 English Name"
-    PERFORMER "Artist Name"
-  }
-}
-FILE "01 Track1.wav" 0
-
-TRACK AUDIO
-CD_TEXT {
-  LANGUAGE 0 {
-    TITLE "Track 2 English Name"
-    PERFORMER "Artist Name"
-  }
-}
-FILE "02 Track2.wav" 0
-```
-
-**重要规则：**
-- FILE 路径使用**相对路径**（相对于 TOC 文件所在目录）
-- 路径使用**正斜杠**或**不带路径**（仅文件名）
-- 不要使用 Windows 反斜杠 `C:\path\file.wav`
-- WAV 文件名必须与 FILE 行完全匹配
-- INDEX 行不需要（cdrdao 自动计算）
-
-**生成方式：** 手动创建或用脚本生成 TOC 文件，放在 WAV 文件同一目录。
-
-### 8. 刻录 Audio CD
-
-**工具：** cdrdao 1.2.6 (`C:\cdrdao\cdrdao.exe`)
-
-**刻录前必须做的事：**
-```powershell
-# 1. 禁用休眠（最重要！休眠会导致刻录失败）
-powercfg -h off
-powercfg -change -standby-timeout-ac 0
-
-# 2. 停止 Windows 自动播放（防止干扰）
-Stop-Service -Name "ShellHWDetection" -Force -ErrorAction SilentlyContinue
-
-# 3. 禁用自动运行
-Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\cdrom" -Name "AutoRun" -Value 0
-```
-
-**查看光驱设备：**
-```powershell
-$env:PATH = "C:\cdrdao;$env:PATH"
-& "C:\cdrdao\cdrdao.exe" scanbus
-# 输出示例：G:\ : PIONEER, BD-RW   BDR-209D, 1.34
-```
-
-**验证 TOC 文件：**
-```powershell
-& "C:\cdrdao\cdrdao.exe" show-toc "C:\path\to\album.toc"
-# 必须在 WAV 文件所在目录运行（cdrdao 用相对路径找文件）
-```
-
-**模拟刻录（不写激光）：**
-```powershell
-& "C:\cdrdao\cdrdao.exe" write --simulate --speed 4 --device "G:\" --driver generic-mmc --overburn --eject -n "C:\path\to\album.toc"
-```
-
-**正式刻录：**
-```powershell
-& "C:\cdrdao\cdrdao.exe" write --speed 16 --device "G:\" --driver generic-mmc --overburn --eject -n "C:\path\to\album.toc"
-```
-
-**参数说明：**
-- `--speed 16`：写入速度（4x=600KB/s 约14分钟，16x=2400KB/s 约4分钟）
-- `--device "G:\"`：光驱设备路径（从 scanbus 获取）
-- `--driver generic-mmc`：通用 MMC 驱动
-- `--overburn`：允许超刻（超过标称容量）
-- `--eject`：刻录完成后弹出
-- `-n`：不暂停，直接开始
-
-**刻录时间估算：**
-- 4x：约 14 分钟（515 MB）
-- 16x：约 4 分钟
-- 48x：约 1.5 分钟
-
-**退出码：** 0=成功，非0=失败
-
-## 完整刻录流程速查
-
-```powershell
-# 1. 准备环境（每次刻录前执行）
-powercfg -h off
-powercfg -change -standby-timeout-ac 0
-Stop-Service -Name "ShellHWDetection" -Force -ErrorAction SilentlyContinue
-Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\cdrom" -Name "AutoRun" -Value 0
-
-# 2. FLAC → WAV 转换
-C:\ffmpeg\ffmpeg-8.1.2-essentials_build\bin\ffmpeg.exe -i input.flac -c:a pcm_s16le -ar 44100 output.wav
-
-# 3. 创建 TOC 文件（放在 WAV 同一目录）
-
-# 4. 验证 TOC
-cd C:\path\to\wav\directory
-C:\cdrdao\cdrdao.exe show-toc album.toc
-
-# 5. 模拟刻录
-C:\cdrdao\cdrdao.exe write --simulate --speed 4 --device "G:\" --driver generic-mmc --overburn --eject -n album.toc
-
-# 6. 正式刻录（放入新 CD-R）
-C:\cdrdao\cdrdao.exe write --speed 16 --device "G:\" --driver generic-mmc --overburn --eject -n album.toc
-```
-
-## 故障排除
-
-### 刻录中途失败（COMMAND SEQUENCE ERROR 0x5/0x2c）
-
-**原因：** 系统休眠或 Windows 后台服务干扰光驱。
-
-**解决：**
-1. 确认 `powercfg -h off` 已执行
-2. 停止 ShellHWDetection 服务
-3. 关闭 Windows 资源管理器（可选）
-4. 刻录期间不要操作电脑
-
-### cdrdao 模拟刻录实际写入激光
-
-**原因：** cdrdao 1.2.5 的 `--simulate` 有 bug，会实际写入。
-
-**解决：** 使用 cdrdao 1.2.6（`C:\cdrdao\cdrdao.exe`），模拟刻录正常。
-
-### TOC 文件解析错误（Illegal token: \）
-
-**原因：** TOC 文件中使用了 Windows 反斜杠路径。
-
-**解决：** 使用相对路径或正斜杠。
-
-### WAV 文件找不到（Cannot open audio file）
-
-**原因：** cdrdao 从不同目录运行，相对路径失效。
-
-**解决：** 使用 `workdir` 参数指定 WAV 文件所在目录，或使用绝对路径。
-
-### 最后一首歌不完整
-
-**原因：** 刻录中途失败，CD 被 finalize 但数据不完整。
-
-**解决：** 重新刻录，确保刻录过程不被中断。
-
-## Download Script Template
-
- ```javascript
- // album-download.mjs
- import { execFile } from 'child_process';
- import { promisify } from 'util';
- import fs from 'fs';
- import path from 'path';
-
- const execFileAsync = promisify(execFile);
- const CLI = 'C:\\Users\\weidi\\play-music\\dist\\index.js';
-
- const album = {
-   artist: '歌手名',
-   artistEn: 'English Name',
-   name: '专辑名',
-   nameEn: 'English Album Name',
-   tracks: [
-     { cn: '歌曲1', en: 'Song 1' },
-     { cn: '歌曲2', en: 'Song 2' },
-     // ... 完整曲目列表
-   ]
- };
-
- const outDir = path.join(process.env.HOME || process.env.USERPROFILE, 'Music', `${album.artist} - ${album.name}`);
-
- function generatePlaylist(albumDir, files) {
-   const lines = ['#EXTM3U', ''];
-   for (const file of files) {
-     lines.push(`#EXTINF:-1,${file.replace('.flac', '')}`);
-     lines.push(file);
-   }
-   const m3u8Path = path.join(albumDir, `${album.name}.m3u8`);
-   fs.writeFileSync(m3u8Path, '\ufeff' + lines.join('\r\n'), 'utf8');
-   console.log(`Playlist: ${m3u8Path}`);
- }
-
- async function downloadAlbum() {
-   fs.mkdirSync(outDir, { recursive: true });
-
-   for (let i = 0; i < album.tracks.length; i++) {
-     const track = album.tracks[i];
-     const num = String(i + 1).padStart(2, '0');
-     const query = `${track.cn} ${album.artist}`;
-     console.log(`\n[${num}/${String(album.tracks.length).padStart(2, '0')}] ${track.cn} → ${track.en}`);
-
-     try {
-       const { stdout } = await execFileAsync('node', [CLI, 'download', query, '-b', 'flac', '-o', outDir], { timeout: 300000 });
-       if (stdout.includes('Saved to:')) {
-         console.log(`  ✓ Downloaded`);
-       } else {
-         console.log(`  ✗ Failed`);
-       }
-     } catch (e) {
-       console.log(`  ✗ Error: ${e.message}`);
-     }
-   }
-
-   // 生成 M3U8 播放列表
-   const files = fs.readdirSync(outDir).filter(f => f.endsWith('.flac')).sort();
-   if (files.length > 0) {
-     generatePlaylist(outDir, files);
-   }
- }
-
- downloadAlbum();
- ```
-
-## Batch Download
-
-For the pre-selected 99 Chinese classic songs:
+| # | 检查 | 挡住的坑 |
+|---|---|---|
+| 1 | magic bytes：`fLaC` / `ID3` / `fff` / `ftyp` | 酷我 **加密 mgg 乱码**（文件 15MB 但不可解析） |
+| 2 | `ffprobe` 时长 vs 参考时长（±25s） | **下载被截断**（如 267s 的歌只下了 113s） |
+| 3 | 编码与扩展名一致 | **AAC 装在 .mp3** 里（浏览器能播，导入器报错） |
+| 4 | `flac -t` 全量解码 | FLAC **尾部截断**（mpv 能播，Apple Music 静默拒收） |
 
 ```bash
-cd C:\Users\weidi\play-music
-node download100.mjs
+flac -t 文件.flac      # 输出含 ERROR / LOST_SYNC 即损坏
+ffmpeg -y -i 坏.flac -acodec flac -compression_level 8 修复.flac   # 无损重编码修复
 ```
 
-Downloads to `~/Music/一人一首成名曲/`.
+**只校验 magic bytes 是不够的** —— 尾部截断的 FLAC 头是完好的。
 
-## FLAC Duration
+---
 
-To calculate total duration of FLAC files:
+## 7. 标签 / 封面 / 播放列表
 
 ```bash
-cd C:\Users\weidi\play-music
-node get-duration.mjs
+node skills/music/scripts/album-finalize.mjs "~/Music/谭维维 - 3811" --artist 谭维维 --album 3811 --date 2020
 ```
+
+脚本会：校验并修复 FLAC → 写 `TITLE/ARTIST/ALBUM/ALBUMARTIST/TRACK/DATE` →
+内嵌封面 → 生成 M3U8。
+
+内嵌封面时**必须把封面流一起带上**，否则 `-map 0:a` 会把它丢掉：
+
+```bash
+ffmpeg -y -i 歌.flac -i cover.jpg \
+  -map 0:a -map 1:v -c:a copy -c:v copy -disposition:v attached_pic \
+  -metadata title="歌名" -metadata artist="歌手" -metadata album="专辑" \
+  -metadata album_artist="歌手" -metadata track="01" -metadata date="2020" \
+  -metadata:s:v comment="Cover (front)" 输出.flac
+```
+
+封面来源（Apple Music 优先，缺失时退回音源自带的）：
+
+```bash
+curl -s "https://itunes.apple.com/search?term=<歌手>+<专辑>&media=music&entity=album&limit=1" \
+  | python3 -c "import json,sys;print(json.load(sys.stdin)['results'][0]['artworkUrl100'])"
+# .../100x100bb.jpg → .../1000x1000bb.jpg
+```
+
+**M3U8 必须：无 BOM、LF 行尾、相对路径**。
+旧写法 `'\ufeff' + '\r\n'` 会让部分播放器显示"空播放列表"。
+
+---
+
+## 8. 播放器兼容性
+
+### macOS
+
+- **Apple Music（音乐 app）不导入 FLAC**：只支持 MP3/AAC/ALAC/WAV/AIFF，
+  FLAC/OGG 会**静默失败**（AppleScript `add` 不报错也不入库）。
+  先转 ALAC：`ffmpeg -i 歌.flac -c:a alac -map_metadata 0 歌.m4a`，
+  再用 AppleScript 导入（`add` 只接受文件 alias，不能传 track 对象）：
+  ```applescript
+  tell application "Music"
+    make new playlist with properties {name:"专辑名"}
+    set pl to first playlist whose name is "专辑名"
+    add {POSIX file "/path/01 歌名.m4a" as alias} to pl
+  end tell
+  ```
+- Apple Music 不擅长播放本地 m3u 播放列表（无法解析本地路径引用），会显示"空播放列表"。
+- 推荐本地播放器：**Cog**（`brew install --cask cog-app`，开源原生、音乐专用）、
+  **VLC** / **IINA**、foobar2000 Mac 版。
+
+### Linux
+
+- **Rhythmbox**（GNOME 自带，apt install rhythmbox）：支持 FLAC，但播放列表要选「文件夹」而非 m3u 文件。
+- **Clementine**（apt install clementine）：曲库/播放列表引擎较强。
+- **mpv**（本 CLI 底层）：`mpv ~/Music/专辑/01\ 歌名.flac` 直接播。
+- **foobar2000 via Wine**、**Strawberry**（`pip install strawberry`）也可用。
+- 桌面环境若用 m3u8 播放列表，优先用 VLC（支持相对路径）。
+
+### 通用
+
+- 本 CLI 基于 mpv，`ting play "..."` 命令行直接听。
+
+---
+
+## 9. 故障排查速查
+
+| 症状 | 原因 | 处理 |
+|---|---|---|
+| 文件 15MB 但 ffprobe 报 0s | 酷我返回**加密 mgg** | 换音源/换引擎；musicdl 能解 |
+| 时长只有应有的一半 | 下载被**截断** | 过校验闸门重下；换引擎 |
+| 扩展名 .mp3 但 ffprobe 说 aac | 容器与扩展名不符 | 按实测编码改扩展名 |
+| `flac -t` 报错但能播放 | FLAC **尾部截断** | ffmpeg 无损重编码修复 |
+| 搜不到某首歌 | 该引擎没有对应**音源**（如 ting 无咪咕） | 换引擎：go-music-dl / musicdl |
+| 下到同名别的歌手的歌 | 只按歌名搜 | 适配器加 `--name` + `--expect` + 艺人过滤 |
+| 搜到宽泛版而非完整版（如缺「(采风版)」） | 模糊搜索 | 用 `--name` 指定完整版式名 |
+| 4 个源全锁区 | 版权区域限制 | 换引擎；或确认全平台下架后用 Live 替代并标注 |
+| QQ/酷狗 URL 拿不到 | 单曲 hash 随时间失效 | 走**专辑级** hash（`scripts/kg-album.ts`） |
+
+---
+
+## 10. 脚本清单
+
+| 脚本 | 用途 |
+|---|---|
+| `scripts/engine-adapter.mjs` | 多引擎适配器：健康检查 / 聚合搜索 / 降级下载 / 校验闸门 / 熔断 |
+| `scripts/musicdl_bridge.py` | musicdl 的 stdin/stdout JSON 桥接（把 Python 库变成可编排的子进程） |
+| `scripts/album-finalize.mjs` | 校验修复 + 打标签 + 内嵌封面 + 生成 M3U8 |
+| `scripts/album-audit.mjs` | 拉取平台参考时长，逐条比对本地文件，找出截断/错版/缺失 |
+| `scripts/kg-album.ts` | 酷狗专辑级 hash 解析（origin/320/sq），绕过失效的单曲 hash |
+| `album-tanweiwei.ts`（仓库根） | 完整专辑下载范例：按专辑约束匹配 + 逐候选回退 |
+| `album-*.mjs`（仓库根） | 其它专辑的下载脚本模板 |

@@ -59,6 +59,21 @@ All \`--json\` output: \`{"ok": true/false, "data": ..., "error": ...}\`
 - \`play\` auto-tries all sources if one fails (VIP/copyright)
 - Control commands (pause/resume/stop) output human text in TTY, JSON when piped
 - Requires: \`brew install mpv\`
+
+## Download Notes
+
+- **Validate FLAC**: run \`flac -t file.flac\` after download. Magic-bytes check isn't enough — files with a truncated tail are rejected silently by Apple Music but still play in mpv.
+- **Embed cover + album tags** after download (re-muxing with \`-map 0:a\` drops the cover stream):
+  \`\`\`bash
+  ffmpeg -y -i s.flac -i cover.jpg -map 0:a -map 1:v -c:a copy -c:v copy \\
+    -disposition:v attached_pic -metadata title=T -metadata artist=A \\
+    -metadata album=B -metadata album_artist=A -metadata track=01 \\
+    -metadata:s:v comment="Cover (front)" out.flac
+  \`\`\`
+- **Apple Music cannot import FLAC** — convert to ALAC first: \`ffmpeg -i s.flac -c:a alac s.m4a\`, then add the \`.m4a\`.
+- **Playlists**: write M3U without BOM, with LF, and relative paths, or some players show an "empty playlist".
+- **Multi-engine fallback**: for album downloads use \`skills/music/scripts/engine-adapter.mjs\` — it tries the \`ting\` CLI, \`go-music-dl\` (HTTP API) and \`musicdl\` (Python) in turn, falling back across both engines and music sources when one fails. See skills/music/SKILL.md in the repo for the full workflow.
+- **Always validate downloads**: magic bytes alone is not enough (Kuwo returns encrypted mgg; files can be truncated). Check magic bytes, then ffprobe duration against a reference, then codec-vs-extension, then \`flac -t\` for FLAC. A failed check must trigger a fallback, not be written into the library.
 `;
 
 function findStatuslineScript(): string | null {

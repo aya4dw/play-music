@@ -4,7 +4,7 @@ import fs from 'fs';
 import path from 'path';
 
 const execFileAsync = promisify(execFile);
-const CLI = 'C:\\Users\\weidi\\play-music\\dist\\index.js';
+const CLI = new URL('./dist/index.js', import.meta.url).pathname;
 
 const albums = [
   {
@@ -195,7 +195,7 @@ async function downloadAlbum(album) {
   console.log('\n=== Summary ===');
   dirs.forEach(d => console.log(d));
 
-  // Combined playlist for CD burning (both albums on one disc)
+  // Combined playlist of both albums (playback use)
   const combinedDir = path.join(process.env.HOME || process.env.USERPROFILE, 'Music', '万能青年旅店 - 双专辑合集');
   fs.mkdirSync(combinedDir, { recursive: true });
 

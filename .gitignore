@@ -6,3 +6,6 @@ dist/
 !src/**
 coverage
 ~/
+musicdl_outputs/
+*.mp3
+*.flac

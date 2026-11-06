@@ -1,5 +1,6 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { homedir } from 'node:os';
 
 function getFlacDuration(filepath) {
   const buf = readFileSync(filepath);
@@ -13,7 +14,7 @@ function getFlacDuration(filepath) {
   return total / sampleRate;
 }
 
-const dir = join(process.env.USERPROFILE, 'Music', '一人一首成名曲');
+const dir = join(homedir(), 'Music', '一人一首成名曲');
 const files = readdirSync(dir).filter(f => f.endsWith('.flac'));
 
 let totalSeconds = 0;

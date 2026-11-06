@@ -4,7 +4,7 @@ import fs from 'fs';
 import path from 'path';
 
 const execFileAsync = promisify(execFile);
-const CLI = 'C:\\Users\\weidi\\play-music\\dist\\index.js';
+const CLI = new URL('./dist/index.js', import.meta.url).pathname;
 
 const album = {
   artist: '张惠妹',
