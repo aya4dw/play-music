@@ -39,7 +39,8 @@ const CONFIG = {
   tingBin: process.env.TING_BIN || 'ting',
   pythonBin: process.env.PYTHON_BIN || (process.env.MUSICDL_PYTHON || 'python3'),
   qualityOrder: ['flac', '320k', '128k'],
-  toleranceSec: 25,
+  toleranceSec: 25,        // 完整性校验容差（挡下载截断）
+  expectToleranceSec: 8,   // 与参考时长的容差（挡「同名不同录音」）
   maxCandidatesPerEngine: 6,
 };
 
@@ -362,7 +363,10 @@ async function searchAll(keyword) {
     try {
       const songs = await e.search(keyword);
       for (const s of songs) {
-        const k = `${s.name}|${s.artist}`.toLowerCase();
+        // 按 (引擎, 音源, 歌名, 歌手) 去重：同名不同引擎/不同音源是**不同候选**，
+        // 全局按歌名去重会把更好的音源版本误删
+        // （实测：musicdl 的 QQMusicClient 版会被 ting 的 qq 版挤掉）
+        const k = `${ename}|${s.source}|${s.name}|${s.artist}`.toLowerCase();
         if (seen.has(k)) continue;
         seen.add(k);
         out.push(s);
@@ -425,22 +429,22 @@ async function fetchSong(keyword, { out, expect = 0, album = '', name = '' } = {
       if (filtered.length) songs = filtered;
     }
 
-    // 3) 时长闸门：候选自报时长必须贴近参考时长（不同录音的差异常大于 6s）
-    if (expect > 0) {
-      const close = songs.filter(s => !s.duration || Math.abs(s.duration - expect) <= 6);
-      if (close.length) songs = close;
-      else {
-        console.error(`  ⏭ ${ename}: 无时长匹配 ${expect}s 的版本`);
-        continue;
-      }
-    }
-
-    // 4) 排序：非 Live/翻唱优先，再按比特率
+    // 3) 排序：非 Live/翻唱优先 → 时长贴近参考优先 → 比特率高优先
+    //    注意：时长只用于**排序**不做硬过滤——各平台元数据时长常不准
+    //    （实测 QQ 的《蝴蝶的翅膀》元数据 206.84s，实际文件 224.6s）。
+    //    「是否同一录音」由下载后的实际时长闸门判定。
     songs = songs
-      .map(s => ({ s, d: isDerivative(s.name) ? 1 : 0 }))
-      .sort((a, b) => a.d - b.d || (b.s.bitrate || 0) - (a.s.bitrate || 0))
+      .map(s => ({
+        s,
+        d: isDerivative(s.name) ? 1 : 0,
+        dd: expect > 0 && s.duration ? Math.abs(s.duration - expect) : 9999,
+      }))
+      .sort((a, b) => a.d - b.d || a.dd - b.dd || (b.s.bitrate || 0) - (a.s.bitrate || 0))
       .map(x => x.s)
       .slice(0, CONFIG.maxCandidatesPerEngine);
+
+    console.error(`  候选(${ename}): ` +
+      songs.map(s => `${s.source}/${s.name}[${s.duration}s]`).join(' | '));
 
     for (const song of songs) {
       const key = `${ename}:${song.source}`;
@@ -492,7 +496,7 @@ async function fetchSong(keyword, { out, expect = 0, album = '', name = '' } = {
         fs.rmSync(tmpDir, { recursive: true, force: true });
         continue;
       }
-      if (expect > 0 && Math.abs(v.dur - expect) > 6) {
+      if (expect > 0 && Math.abs(v.dur - expect) > CONFIG.expectToleranceSec) {
         console.error(`  ✗ ${ename}/${song.source} 时长 ${v.dur.toFixed(1)}s 与参考 ${expect}s 不符`);
         trip(key);
         fs.rmSync(fp, { force: true });

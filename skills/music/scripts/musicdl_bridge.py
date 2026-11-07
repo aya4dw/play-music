@@ -14,6 +14,7 @@ musicdl 桥接器 —— 把 musicdl 的 Python API 暴露成一行 JSON 的 std
 import json
 import os
 import sys
+import time
 
 
 def brief(s):
@@ -32,6 +33,33 @@ def brief(s):
         "cover": d.get("cover_url") or "",
         "raw": {k: v for k, v in d.items() if isinstance(v, (str, int, float, bool, type(None)))},
     }
+
+
+def wait_file_stable(path, timeout=180.0, quiet=1.0):
+    """
+    等待文件写入结束。
+
+    musicdl 的 download() 在后台线程里写文件，函数返回时文件可能只写了一半，
+    此时立刻校验会得到「FLAC 尾部截断」的假阳性。
+    这里轮询文件大小，直到连续 quiet 秒内不再变化才算写完。
+    """
+    if not path or not os.path.exists(path):
+        return False
+    deadline = time.time() + timeout
+    last_size = -1
+    stable_since = time.time()
+    while time.time() < deadline:
+        try:
+            size = os.path.getsize(path)
+        except OSError:
+            size = -1
+        if size != last_size:
+            last_size = size
+            stable_since = time.time()
+        elif size > 0 and (time.time() - stable_since) >= quiet:
+            return True
+        time.sleep(0.25)
+    return False
 
 
 def main():
@@ -113,6 +141,10 @@ def main():
             saved = getattr(target, "_save_path", "") or ""
             if not saved or not os.path.exists(saved):
                 emit({"ok": False, "error": f"下载后未找到文件: {saved}"})
+                return
+            # 必须等文件写完，否则校验会误判为「尾部截断」
+            if not wait_file_stable(saved):
+                emit({"ok": False, "error": f"文件写入未完成: {saved}"})
                 return
             emit({
                 "ok": True,
